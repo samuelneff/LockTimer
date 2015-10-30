@@ -28,6 +28,8 @@ namespace LockTimerProject
         private static string _logPath;
         private static int _cacheMilliseconds = 10000;
 
+        public static EventHandler<LockTimerEvent> Contention;
+
         public static bool EnableLogging
         {
             get
@@ -84,6 +86,7 @@ namespace LockTimerProject
             _postEnter = Stopwatch.GetTimestamp();
         }
 
+
         public void Dispose()
         {
             _preExit = Stopwatch.GetTimestamp();
@@ -120,10 +123,6 @@ namespace LockTimerProject
 
             public LockTimerEnabled()
             {
-                LogFilePath = Path.Combine(LogPath,
-                                            String.Format("LockTimer-Verbose-{0:yyyy-MM-dd--T--HH-mm-ss}.log",
-                                                          DateTime.Now));
-
                 new Thread(ThreadEnter) {
                                         IsBackground = true,
                                         Name = "LockWriter"
@@ -140,8 +139,6 @@ namespace LockTimerProject
 
             private void ThreadEnter()
             {
-                File.WriteAllText(LogFilePath, "TimeStart,ThreadId,ThreadName,LockName,LockHash,LockTaken,EnterTotal,InsideTotal,GrandTotal,PreEnter,PostEnter,PreExit,PostExit" + Environment.NewLine);
-
                 while (KeepWriting)
                 {
                     Thread.Sleep(CacheMilliseconds);
@@ -158,10 +155,28 @@ namespace LockTimerProject
                     return;
                 }
 
+                bool writeHeader = false;
+
+                if (LogFilePath == null)
+                {
+                    LogFilePath = Path.Combine(LogPath,
+                                               String.Format("LockTimer-Verbose-{0:yyyy-MM-dd--T--HH-mm-ss}.log",
+                                                             DateTime.Now));
+                    writeHeader = true;
+                }
+
+                var contention = Contention;
+
                 using (var fileWriter = File.Open(LogFilePath, FileMode.Append, FileAccess.Write, FileShare.Read))
                 {
                     using (var streamWriter = new StreamWriter(fileWriter, Encoding.UTF8))
                     {
+
+                        if (writeHeader)
+                        {
+                            streamWriter.WriteLine("TimeStart,ThreadId,ThreadName,LockName,LockHash,LockTaken,EnterTotal,InsideTotal,GrandTotal,PreEnter,PostEnter,PreExit,PostExit");
+                        }
+
                         LockTimer timer;
 
                         while (_pendingWrites.TryDequeue(out timer))
@@ -176,6 +191,16 @@ namespace LockTimerProject
                             var enterTotal = timer._postEnter - timer._preEnter;
                             var insideTotal = timer._preExit - timer._postEnter;
                             var grandTotal = timer._postExit - timer._preEnter;
+
+                            if (contention != null)
+                            {
+                                var args = new LockTimerEvent(timer._threadName,
+                                                              timer._name,
+                                                              enterTotal,
+                                                              grandTotal);
+
+                                ThreadPool.QueueUserWorkItem(o => contention(null, args));
+                            }
 
                             var line = String.Join(",",
                                                    timer._start.ToString("yyyy-MM-dd HH:mm:ss.ffff"),
@@ -199,6 +224,21 @@ namespace LockTimerProject
                 }
             }
         }
+    }
 
+    public class LockTimerEvent : EventArgs
+    {
+        public string ThreadName { get; private set; }
+        public string LockName { get; private set; }
+        public long EnterTime { get; private set; }
+        public long TotalTime { get; private set; }
+
+        public LockTimerEvent(string threadName, string lockName, long enterTime, long totalTime)
+        {
+            ThreadName = threadName;
+            LockName = lockName;
+            EnterTime = enterTime;
+            TotalTime = totalTime;
+        }
     }
 }
