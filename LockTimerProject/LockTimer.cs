@@ -160,7 +160,7 @@ namespace LockTimerProject
                 if (LogFilePath == null)
                 {
                     LogFilePath = Path.Combine(LogPath,
-                                               String.Format("LockTimer-Verbose-{0:yyyy-MM-dd--T--HH-mm-ss}.log",
+                                               String.Format("LockTimer-{0:yyyy-MM-dd--T--HH-mm-ss}.log",
                                                              DateTime.Now));
                     writeHeader = true;
                 }
